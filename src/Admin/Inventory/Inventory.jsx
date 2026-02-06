@@ -14,7 +14,7 @@ const FloatingLabelInput = ({ value, onChange, placeholder, type = "text", class
   const handleFocus = () => setIsFocused(true);
   const handleBlur = () => setIsFocused(false);
 
-  const isActive = isFocused;
+  const isActive = isFocused || (value !== undefined && value !== null && value.toString().length > 0);
 
   return (
     <div className="relative">
@@ -62,14 +62,20 @@ export default function Inventory() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingBrand, setEditingBrand] = useState({ id: '', name: '', agent_name: '' });
 
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const brandsPerPage = 10;
-
   const [isBrandSectionOpen, setIsBrandSectionOpen] = useState(false);
   const [isTypeSectionOpen, setIsTypeSectionOpen] = useState(false);
 
-  // Fetch Data
+  const [isTypeListOpen, setIsTypeListOpen] = useState(false);
+  const [typeSearch, setTypeSearch] = useState('');
+  const [editTypeModalOpen, setEditTypeModalOpen] = useState(false);
+  const [editingType, setEditingType] = useState({ oldName: '', newName: '' });
+
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const brandsPerPage = 10;
+  const typesPerPage = 12;
+  const [currentTypePage, setCurrentTypePage] = useState(1);
+
   const fetchData = async () => {
     try {
       const [typeRes, brandRes] = await Promise.all([
@@ -92,7 +98,6 @@ export default function Inventory() {
     return () => clearInterval(interval);
   }, []);
 
-  // Create Product Type
   const handleCreateProductType = async () => {
     if (!newProductType.trim()) return setError('Product type required');
     const formatted = newProductType.toLowerCase().trim().replace(/\s+/g, '_');
@@ -113,7 +118,6 @@ export default function Inventory() {
     }
   };
 
-  // Create Brand
   const handleCreateBrand = async () => {
     if (!newBrand.trim()) return setError('Brand name required');
     const formatted = newBrand.toLowerCase().trim().replace(/\s+/g, '_');
@@ -135,7 +139,6 @@ export default function Inventory() {
     }
   };
 
-  // Save Product
   const handleSaveProduct = async (e) => {
     e.preventDefault();
     if (!selectedBrand || !selectedType || !form.productName || !form.price || !form.perCase) {
@@ -165,7 +168,6 @@ export default function Inventory() {
     }
   };
 
-  // Edit & Delete Brand
   const handleUpdateBrand = async () => {
     const formatted = editingBrand.name.toLowerCase().trim().replace(/\s+/g, '_');
     try {
@@ -193,6 +195,44 @@ export default function Inventory() {
     }
   };
 
+  const handleUpdateProductType = async () => {
+    const newRaw = editingType.newName.trim();
+    if (!newRaw) return setError("Name cannot be empty");
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/product-types/${editingType.oldName}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_type: newRaw })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Update failed');
+      }
+
+      setSuccess('Product type updated');
+      setEditTypeModalOpen(false);
+      fetchData();
+    } catch (err) {
+      setError(err.message || 'Failed to update');
+    }
+  };
+
+  const handleDeleteProductType = async (type) => {
+    if (!window.confirm(`Delete product type "${formatDisplay(type)}" and ALL products inside it?`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/product-types/${type}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error();
+      setSuccess(`Product type "${formatDisplay(type)}" deleted`);
+      fetchData();
+    } catch {
+      setError('Failed to delete product type');
+    }
+  };
+
   const formatDisplay = (str) => str
     ? str.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
     : '';
@@ -204,6 +244,13 @@ export default function Inventory() {
 
   const totalPages = Math.ceil(filteredBrands.length / brandsPerPage);
   const paginated = filteredBrands.slice((currentPage - 1) * brandsPerPage, currentPage * brandsPerPage);
+
+  const filteredTypes = productTypes.filter(t =>
+    t.toLowerCase().includes(typeSearch.toLowerCase())
+  );
+
+  const totalTypePages = Math.ceil(filteredTypes.length / typesPerPage);
+  const paginatedTypes = filteredTypes.slice((currentTypePage - 1) * typesPerPage, currentTypePage * typesPerPage);
 
   return (
     <div className="flex min-h-screen bg-gray-100 dark:bg-gray-900 justify-center">
@@ -219,9 +266,8 @@ export default function Inventory() {
           {error && <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 rounded-lg text-center font-medium text-sm mobile:text-xs">{error}</div>}
           {success && <div className="mb-4 p-4 bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 rounded-lg text-center font-medium text-sm mobile:text-xs">{success}</div>}
 
-          {/* COLLAPSIBLE: Add New Brand */}
+          {/* Add Brand + Add Product Type - stacked on mobile, side by side on desktop */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
-            {/* Add New Brand */}
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
               <button
                 onClick={() => setIsBrandSectionOpen(prev => !prev)}
@@ -233,16 +279,8 @@ export default function Inventory() {
 
               {isBrandSectionOpen && (
                 <div className="p-8 space-y-6">
-                  <FloatingLabelInput
-                    value={newBrand}
-                    onChange={(e) => setNewBrand(e.target.value)}
-                    placeholder="Brand name"
-                  />
-                  <FloatingLabelInput
-                    value={newAgentName}
-                    onChange={(e) => setNewAgentName(e.target.value)}
-                    placeholder="Agent name (optional)"
-                  />
+                  <FloatingLabelInput value={newBrand} onChange={(e) => setNewBrand(e.target.value)} placeholder="Brand name" />
+                  <FloatingLabelInput value={newAgentName} onChange={(e) => setNewAgentName(e.target.value)} placeholder="Agent name (optional)" />
                   <div className='flex justify-center'>
                     <button
                       onClick={handleCreateBrand}
@@ -287,6 +325,7 @@ export default function Inventory() {
             </div>
           </div>
 
+          {/* Brand & Type selection - stacked */}
           <div className="bg-white dark:bg-gray-800 p-8 mobile:p-6 rounded-xl shadow-lg mb-8">
             <label className="block text-lg mobile:text-base font-bold mb-4 text-black dark:text-white">
               Step 1: Select Brand
@@ -365,50 +404,126 @@ export default function Inventory() {
             </div>
           )}
 
-          <div className="bg-white dark:bg-gray-800 p-8 mobile:p-6 rounded-xl shadow-lg">
-            <h3 className="text-2xl mobile:text-xl font-bold mb-6 text-black dark:text-white">All Brands</h3>
-            <FloatingLabelInput
-              value={brandSearch}
-              onChange={e => { setBrandSearch(e.target.value); setCurrentPage(1); }}
-              placeholder="Search brand or agent..."
-              className="mb-6"
-            />
-            <div className="grid grid-cols-1 mobile:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 mobile:gap-4">
-              {paginated.map(b => (
-                <div key={b.id} className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-700 dark:to-gray-800 p-5 mobile:p-4 rounded-xl shadow border border-blue-200 dark:border-gray-600">
-                  <div className="flex justify-between items-start mb-3">
-                    <h4 className="font-bold text-base mobile:text-sm text-black dark:text-white">{formatDisplay(b.name)}</h4>
+          {/* ────────────────────────────────────────────────
+              All Brands + All Product Types → two columns on desktop
+          ──────────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 hundred:grid-cols-2 gap-8">
+            {/* All Brands */}
+            <div className="bg-white dark:bg-gray-800 p-8 mobile:p-6 rounded-xl shadow-lg">
+              <h3 className="text-2xl mobile:text-xl font-bold mb-6 text-black dark:text-white">All Brands</h3>
+              <FloatingLabelInput
+                value={brandSearch}
+                onChange={e => { setBrandSearch(e.target.value); setCurrentPage(1); }}
+                placeholder="Search brand or agent..."
+                className="mb-6"
+              />
+              <div className="grid grid-cols-1 mobile:grid-cols-2  hundred:grid-cols-3 gap-5 mobile:gap-4">
+                {paginated.map(b => (
+                  <div key={b.id} className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-700 dark:to-gray-800 p-5 mobile:p-4 rounded-xl shadow border border-blue-200 dark:border-gray-600">
+                    <div className="flex justify-between items-start mb-3">
+                      <h4 className="font-bold text-base mobile:text-sm text-black dark:text-white">{formatDisplay(b.name)}</h4>
+                      <div className="flex gap-2">
+                        <button onClick={() => { setEditingBrand(b); setEditModalOpen(true); }} className="text-blue-600 hover:text-blue-800">
+                          <FaEdit size={18} />
+                        </button>
+                        <button onClick={() => handleDeleteBrand(b.id)} className="text-red-600 hover:text-red-800">
+                          <FaTrash size={18} />
+                        </button>
+                      </div>
+                    </div>
+                    {b.agent_name && <p className="text-sm mobile:text-xs text-black dark:text-white opacity-80">Agent: {b.agent_name}</p>}
+                  </div>
+                ))}
+              </div>
+
+              {totalPages > 1 && (
+                <div className="mt-8 flex justify-center gap-4 flex-wrap">
+                  <button onClick={() => setCurrentPage(p => Math.max(1, p-1))} disabled={currentPage === 1} className="px-5 mobile:px-4 py-2.5 mobile:py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg hundred:text-md mobile:text-sm transition">
+                    Previous
+                  </button>
+                  <span className="py-2.5 px-5 hundred:text-md mobile:text-sm font-medium text-black dark:text-white">
+                    Page {currentPage} / {totalPages}
+                  </span>
+                  <button onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} disabled={currentPage === totalPages} className="px-5 mobile:px-4 py-2.5 mobile:py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg hundred:text-md mobile:text-sm transition">
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* All Product Types */}
+            <div className="bg-white dark:bg-gray-800 p-8 mobile:p-6 rounded-xl shadow-lg">
+              <h3 className="text-2xl mobile:text-xl font-bold mb-6 text-black dark:text-white">
+                All Product Types
+              </h3>
+
+              <FloatingLabelInput
+                value={typeSearch}
+                onChange={e => {
+                  setTypeSearch(e.target.value);
+                  setCurrentTypePage(1);
+                }}
+                placeholder="Search product type..."
+                className="mb-6"
+              />
+
+              <div className="grid grid-cols-1 mobile:grid-cols-2 hundred:grid-cols-3 gap-4">
+                {paginatedTypes.map(type => (
+                  <div
+                    key={type}
+                    className="bg-gradient-to-br from-teal-50 to-teal-100 dark:from-gray-700 dark:to-gray-800 p-5 rounded-xl shadow border border-teal-200 dark:border-gray-600 flex justify-between items-start"
+                  >
+                    <h4 className="font-bold text-base mobile:text-sm text-black dark:text-white">
+                      {formatDisplay(type)}
+                    </h4>
                     <div className="flex gap-2">
-                      <button onClick={() => { setEditingBrand(b); setEditModalOpen(true); }} className="text-blue-600 hover:text-blue-800">
+                      <button
+                        onClick={() => {
+                          setEditingType({ oldName: type, newName: formatDisplay(type) });
+                          setEditTypeModalOpen(true);
+                        }}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
                         <FaEdit size={18} />
                       </button>
-                      <button onClick={() => handleDeleteBrand(b.id)} className="text-red-600 hover:text-red-800">
+                      <button
+                        onClick={() => handleDeleteProductType(type)}
+                        className="text-red-600 hover:text-red-800"
+                      >
                         <FaTrash size={18} />
                       </button>
                     </div>
                   </div>
-                  {b.agent_name && <p className="text-sm mobile:text-xs text-black dark:text-white opacity-80">Agent: {b.agent_name}</p>}
-                </div>
-              ))}
-            </div>
-
-            {totalPages > 1 && (
-              <div className="mt-8 flex justify-center gap-4 flex-wrap">
-                <button onClick={() => setCurrentPage(p => Math.max(1, p-1))} disabled={currentPage === 1} className="px-5 mobile:px-4 py-2.5 mobile:py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg hundred:text-md mobile:text-sm transition">
-                  Previous
-                </button>
-                <span className="py-2.5 px-5 hundred:text-md mobile:text-sm font-medium text-black dark:text-white">
-                  Page {currentPage} / {totalPages}
-                </span>
-                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} disabled={currentPage === totalPages} className="px-5 mobile:px-4 py-2.5 mobile:py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg hundred:text-md mobile:text-sm transition">
-                  Next
-                </button>
+                ))}
               </div>
-            )}
+
+              {totalTypePages > 1 && (
+                <div className="mt-6 flex justify-center gap-4 flex-wrap">
+                  <button
+                    onClick={() => setCurrentTypePage(p => Math.max(1, p - 1))}
+                    disabled={currentTypePage === 1}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <span className="py-2 font-medium">
+                    Page {currentTypePage} / {totalTypePages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentTypePage(p => Math.min(totalTypePages, p + 1))}
+                    disabled={currentTypePage === totalTypePages}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Brand Edit Modal */}
       <Modal isOpen={editModalOpen} onRequestClose={() => setEditModalOpen(false)}
         className="bg-white dark:bg-gray-800 rounded-xl p-8 mobile:p-6 max-w-md mx-4 shadow-2xl"
         overlayClassName="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -431,6 +546,38 @@ export default function Inventory() {
           </button>
           <button onClick={handleUpdateBrand} className="px-6 mobile:px-5 py-3 mobile:py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition hundred:text-md mobile:text-sm">
             Update Brand
+          </button>
+        </div>
+      </Modal>
+
+      {/* Product Type Edit Modal */}
+      <Modal
+        isOpen={editTypeModalOpen}
+        onRequestClose={() => setEditTypeModalOpen(false)}
+        className="bg-white dark:bg-gray-800 rounded-xl p-8 max-w-md mx-4 shadow-2xl"
+        overlayClassName="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      >
+        <h3 className="text-2xl font-bold mb-6 text-black dark:text-white">Edit Product Type</h3>
+
+        <FloatingLabelInput
+          value={editingType.newName}
+          onChange={e => setEditingType({ ...editingType, newName: e.target.value })}
+          placeholder="Product type name"
+          className="mb-6"
+        />
+
+        <div className="flex justify-end gap-4">
+          <button
+            onClick={() => setEditTypeModalOpen(false)}
+            className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleUpdateProductType}
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold"
+          >
+            Update Type
           </button>
         </div>
       </Modal>
