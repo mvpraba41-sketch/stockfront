@@ -164,6 +164,8 @@ export default function Godown() {
   };
 
   const handleBulkAddStock = async () => {
+    const username = localStorage.getItem('username') || 'Unknown';
+
     const validRows = rows.filter(r =>
       r.godown && r.product && r.cases && parseInt(r.cases, 10) > 0
     );
@@ -179,6 +181,7 @@ export default function Godown() {
         brand: r.product.brand,
         per_case: r.product.per_case,
         cases_added: parseInt(r.cases, 10),
+        added_by: username,           // ← NEW – same user for all rows in one bulk action
       })),
     };
 

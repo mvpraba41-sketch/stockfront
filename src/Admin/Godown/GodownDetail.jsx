@@ -46,7 +46,7 @@ export default function GodownDetail() {
   const [casesAdded, setCasesAdded] = useState('');
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [addingProduct, setAddingProduct] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(''); // Search state
+  const [searchQuery, setSearchQuery] = useState('');
 
   const styles = {
     input: {
@@ -97,7 +97,7 @@ export default function GodownDetail() {
         setProductTypes(uniqueTypes);
       }
 
-      // Pre-fetch history for each stock
+      // Pre-fetch history
       for (const stock of data) {
         if (!historyCache[stock.id]) {
           try {
@@ -106,7 +106,7 @@ export default function GodownDetail() {
               const hist = await res.json();
               setHistoryCache(prev => ({ ...prev, [stock.id]: hist }));
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) { /* silent fail */ }
         }
       }
     } catch (err) {
@@ -117,18 +117,19 @@ export default function GodownDetail() {
     }
   };
 
-  // Initial load
   useEffect(() => {
     fetchGodown();
     fetchAllProducts();
   }, [godownId, fetchAllProducts]);
 
-  // ADD PRODUCT TO GODOWN
   const handleAddProductToGodown = async () => {
     if (!selectedProduct || !casesAdded || parseInt(casesAdded) <= 0) {
       setError('Select product and valid cases');
       return;
     }
+
+    const username = localStorage.getItem('username') || 'Unknown';
+
     setAddingProduct(true);
     setError('');
     try {
@@ -139,8 +140,9 @@ export default function GodownDetail() {
           godown_id: godownId,
           product_type: selectedProduct.product_type,
           productname: selectedProduct.productname,
-          brand: selectedProduct.brand.toLowerCase().replace(/\s+/g, '_'),
+          brand: selectedProduct.brand?.toLowerCase().replace(/\s+/g, '_') || '',
           cases_added: parseInt(casesAdded),
+          added_by: username,
         }),
       });
       const data = await res.json();
@@ -159,7 +161,6 @@ export default function GodownDetail() {
     }
   };
 
-  // TAKE STOCK
   const handleTakeStock = async () => {
     if (!selectedStock?.id || !casesTaken || parseInt(casesTaken) <= 0) return;
     setIsTakingStock(true);
@@ -181,7 +182,6 @@ export default function GodownDetail() {
     }
   };
 
-  // ADD STOCK
   const handleAddStock = async () => {
     if (!selectedStock?.id || !casesToAdd || parseInt(casesToAdd) <= 0) return;
     try {
@@ -200,7 +200,6 @@ export default function GodownDetail() {
     }
   };
 
-  // STOCK HISTORY
   const fetchStockHistory = async stockId => {
     if (historyCache[stockId]) {
       setStockHistory(historyCache[stockId]);
@@ -219,7 +218,6 @@ export default function GodownDetail() {
     }
   };
 
-  // DOWNLOAD
   const openDownloadModal = () => setShowDownloadModal(true);
 
   const confirmDownload = () => {
@@ -231,16 +229,15 @@ export default function GodownDetail() {
     const allHistory = Object.values(historyCache).flat();
     let filtered = [];
 
-    // Helper: Convert any date to IST YYYY-MM-DD
     const toISTDate = (dateStr) => {
       const date = new Date(dateStr);
-      return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // "2025-11-10"
+      return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     };
 
     if (downloadMode === 'all') {
       filtered = allHistory;
     } else if (downloadMode === 'date' && selectedDate) {
-      const selectedIST = toISTDate(selectedDate); // e.g. "2025-11-10"
+      const selectedIST = toISTDate(selectedDate);
       filtered = allHistory.filter(h => toISTDate(h.date) === selectedIST);
     } else if (downloadMode === 'month' && selectedMonth) {
       const year = selectedMonth.getFullYear();
@@ -260,22 +257,15 @@ export default function GodownDetail() {
     const currentStockData = godown.stocks
       .filter(s => s.current_cases > 0)
       .map(s => {
-        const lastTaken = allHistory
-          .filter(h => h.stock_id === s.id && h.action === 'taken')
-          .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-
-        const lastTaker = lastTaken
-          ? (lastTaken.customer_name && lastTaken.customer_name !== '-' ? lastTaken.customer_name : lastTaken.agent_name || '-')
-          : (s.agent_name || '-');
 
         return {
-          'Product Type': capitalize(s.product_type),
-          'Product Name': s.productname,
+          'Product Type': capitalize(s.product_type || ''),
+          'Product Name': s.productname || '',
           'Brand': capitalize(s.brand || ''),
-          'Name': lastTaker,
+          'Agent Name': s.agent_name || '-',
           'Current Cases': s.current_cases,
           'Per Case': s.per_case,
-          'Total Items': s.current_cases * s.per_case,
+          'Total Items': s.current_cases * (s.per_case || 1),
         };
       });
 
@@ -287,7 +277,7 @@ export default function GodownDetail() {
     // ── HISTORY SHEETS ──
     const historyByType = {};
     filtered.forEach(h => {
-      const type = capitalize(h.product_type);
+      const type = capitalize(h.product_type || 'Unknown');
       if (!historyByType[type]) historyByType[type] = [];
       historyByType[type].push({
         'Date': new Date(h.date).toLocaleString('en-IN', {
@@ -295,21 +285,20 @@ export default function GodownDetail() {
           day: '2-digit', month: 'short', year: 'numeric',
           hour: '2-digit', minute: '2-digit', hour12: true
         }),
-        'Product': h.productname,
+        'Product': h.productname || '',
         'Brand': capitalize(h.brand || ''),
         'Action': h.action === 'added' ? 'IN' : 'OUT',
         'Cases': h.action === 'added' ? `+${h.cases}` : `-${h.cases}`,
-        'Items': h.per_case_total,
-        'Name': h.action === 'added'
-          ? (h.customer_name && h.customer_name !== '-' ? h.customer_name : h.agent_name || '-')
-          : (h.customer_name && h.customer_name !== '-' ? h.customer_name : '-'),
+        'Items': h.per_case_total || 0,
+        'Agent Name': h.agent_name || '-',
+        'Added By': h.action === 'added' ? (h.added_by || '-') : '-',
       });
     });
 
     for (const type in historyByType) {
       if (historyByType[type].length > 0) {
         const ws = XLSX.utils.json_to_sheet(historyByType[type]);
-        const safeName = type.length > 30 ? type.substring(0, 30) : type;
+        const safeName = type.length > 31 ? type.substring(0, 31) : type;
         XLSX.utils.book_append_sheet(wb, ws, safeName);
       }
     }
@@ -322,9 +311,9 @@ export default function GodownDetail() {
     const suffix =
       downloadMode === 'all' ? 'all' :
       downloadMode === 'date' ? toISTDate(selectedDate) :
-      `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`;
+      `${selectedMonth?.getFullYear() || 'year'}-${String(selectedMonth?.getMonth() + 1 || '00').padStart(2, '0')}`;
 
-    XLSX.writeFile(wb, `${godown.name}_stock_${suffix}.xlsx`);
+    XLSX.writeFile(wb, `${godown?.name || 'godown'}_stock_${suffix}.xlsx`);
 
     setShowDownloadModal(false);
     setDownloadMode('all');
@@ -344,15 +333,16 @@ export default function GodownDetail() {
     setAddModalIsOpen(true);
   };
 
-  // FILTERED STOCKS
   const currentStocks = godown ? godown.stocks.filter(s => s.current_cases > 0) : [];
   const previousStocks = godown ? godown.stocks.filter(s => s.current_cases === 0) : [];
   const stocksToDisplay = activeTab === 'current' ? currentStocks : previousStocks;
+
   const filteredStocks = stocksToDisplay.filter(stock => {
-    const matchesSearch = !searchQuery || stock.productname.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = !searchQuery || stock.productname?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = selectedProductType === 'all' || stock.product_type === selectedProductType;
     return matchesSearch && matchesType;
   });
+
   const totalPages = Math.ceil(filteredStocks.length / cardsPerPage);
   const indexOfLastCard = currentPage * cardsPerPage;
   const indexOfFirstCard = indexOfLastCard - cardsPerPage;
@@ -363,7 +353,7 @@ export default function GodownDetail() {
     : [];
 
   const totalCases = godown
-    ? godown.stocks.reduce((sum, s) => sum + s.current_cases, 0)
+    ? godown.stocks.reduce((sum, s) => sum + (s.current_cases || 0), 0)
     : 0;
 
   const uniqueProductsData = uniqueProducts.map((name, i) => {
@@ -382,7 +372,6 @@ export default function GodownDetail() {
         .sort((a, b) => b.casecount - a.casecount)
     : [];
 
-  // PRODUCT OPTIONS FOR react-select
   const productOptions = allProducts
     .filter(p => !godown?.stocks?.some(s => s.productname === p.productname && s.brand === p.brand))
     .map(p => ({
@@ -393,7 +382,6 @@ export default function GodownDetail() {
       product_type: p.product_type,
     }));
 
-  // SEARCH OPTIONS
   const searchOptions = godown?.stocks
     ? [...new Map(godown.stocks.map(s => [s.productname, s])).values()]
         .map(s => ({
@@ -403,7 +391,6 @@ export default function GodownDetail() {
         .sort((a, b) => a.label.localeCompare(b.label))
     : [];
 
-  // LOADING SCREEN
   if (isLoading) {
     return (
       <div className="flex min-h-screen bg-gray-100 dark:bg-gray-900">
@@ -484,7 +471,6 @@ export default function GodownDetail() {
 
           {error && <div className="mb-4 text-red-600 dark:text-red-400 text-center">{error}</div>}
 
-          {/* SEARCH BAR */}
           <div className="mb-6 mobile:mb-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Search by Product Name
@@ -695,7 +681,7 @@ export default function GodownDetail() {
         </div>
       </Modal>
 
-      {/* HISTORY MODAL – SHOWS CUSTOMER NAME (IN) / AGENT NAME (OUT) */}
+      {/* HISTORY MODAL */}
       <Modal
         isOpen={historyModalIsOpen}
         onRequestClose={() => {
@@ -708,10 +694,16 @@ export default function GodownDetail() {
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-black dark:text-white">
-              Stock History – {selectedStock?.productname} ({capitalize(selectedStock?.brand || '')})
+              Stock History – {selectedStock?.productname || 'Unknown Product'}
+              <span className="text-gray-500 dark:text-gray-400 font-normal ml-2">
+                • {capitalize(selectedStock?.product_type || 'Unknown')}
+              </span>
+              <span className="text-sky-500 font-normal ml-2">
+                ({capitalize(selectedStock?.brand || '')})
+              </span>
             </h2>
-            <button className='text-black dark:text-white' onClick={() => setHistoryModalIsOpen(false)}>
-              <FaTimes />
+            <button className="text-black dark:text-white hover:text-red-500" onClick={() => setHistoryModalIsOpen(false)}>
+              <FaTimes size={20} />
             </button>
           </div>
 
@@ -724,7 +716,8 @@ export default function GodownDetail() {
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Action</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Cases</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Total Qty</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Name</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Agent Name</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Added By</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -743,12 +736,8 @@ export default function GodownDetail() {
                         <td className="px-4 py-2 text-sm text-black dark:text-white">{i + 1}</td>
                         <td className="px-4 py-2 text-sm text-black dark:text-white">
                           {new Date(h.date).toLocaleString('en-IN', {
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: true,
+                            day: '2-digit', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit', hour12: true,
                           })}
                         </td>
                         <td className={`px-4 py-2 text-sm font-bold ${
@@ -759,18 +748,16 @@ export default function GodownDetail() {
                         <td className="px-4 py-2 text-sm text-black dark:text-white">
                           {h.action === 'added' ? `+${h.cases}` : `-${h.cases}`}
                         </td>
-                        <td className="px-4 py-2 text-sm text-black dark:text-white">{h.per_case_total}</td>
-                        <td className="px-4 py-2 text-sm text-sky-500">
-                          {h.action === 'added' 
-                            ? (h.customer_name && h.customer_name !== '-' ? h.customer_name : h.agent_name)
-                            : (h.customer_name && h.customer_name !== '-' ? h.customer_name : '-')
-                          }
+                        <td className="px-4 py-2 text-sm text-black dark:text-white">{h.per_case_total || 0}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">{h.agent_name || '-'}</td>
+                        <td className="px-4 py-2 text-sm text-sky-600 font-medium">
+                          {h.action === 'added' ? (h.added_by || '-') : '-'}
                         </td>
                       </tr>
                     ))
                 ) : (
                   <tr>
-                    <td colSpan="6" className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       No history available
                     </td>
                   </tr>
