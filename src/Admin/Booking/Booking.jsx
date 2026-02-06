@@ -93,7 +93,6 @@ export default function Booking() {
     button: { background: "linear-gradient(135deg, rgba(2,132,199,0.9), rgba(14,165,233,0.95))", backgroundDark: "linear-gradient(135deg, rgba(59,130,246,0.9), rgba(37,99,235,0.95))", backdropFilter: "blur(15px)", border: "1px solid rgba(125,211,252,0.4)", borderDark: "1px solid rgba(147,197,253,0.4)", boxShadow: "0 15px 35px rgba(2,132,199,0.3), inset 0 1px 0 rgba(255,255,255,0.2)", boxShadowDark: "0 15px 35px rgba(59,130,246,0.4), inset 0 1px 0 rgba(255,255,255,0.1)" }
   };
 
-  // Fixed: Define cardClass and textClass
   const cardClass = "bg-white dark:bg-gray-800 rounded-xl shadow-lg";
   const textClass = "text-black dark:text-white";
   const tableText = "text-black dark:text-white";
@@ -223,7 +222,8 @@ export default function Booking() {
       discount: 0,
       godown: p.shortGodown,
       per_case: p.per_case || 1,
-      current_cases: p.current_cases || 0
+      current_cases: p.current_cases || 0,
+      rate_per_box: parseFloat(p.rate_per_box) || 0   // editable field
     }]);
     setSearchQuery('');
     setGlobalProducts([]);
@@ -235,9 +235,13 @@ export default function Booking() {
     setCart(prev => prev.map((i, i2) => i2 === idx ? { ...i, cases } : i));
   };
 
+  const updateRate = (idx, val) => {
+    const newRate = parseFloat(val) || 0;
+    setCart(prev => prev.map((i, i2) => i2 === idx ? { ...i, rate_per_box: newRate } : i));
+  };
+
   const removeFromCart = (idx) => setCart(prev => prev.filter((_, i) => i !== idx));
 
-  // Safe calculation function
   const calculate = () => {
     let subtotal = 0;
     let totalCases = 0;
@@ -375,7 +379,7 @@ export default function Booking() {
           per_case: Number(i.per_case) || 1,
           discount_percent: parseFloat(i.discount || 0),
           godown: i.godown?.trim() || 'SIVAKASI',
-          rate_per_box: parseFloat(i.rate_per_box) || 0
+          rate_per_box: parseFloat(i.rate_per_box) || 0   // ← edited price is sent here
         }))
       };
 
@@ -391,12 +395,10 @@ export default function Booking() {
 
       const data = await res.json();
 
-      // CRITICAL FIX: Only proceed if request was successful
       if (!res.ok) {
         throw new Error(data.message || 'Failed to generate bill');
       }
 
-      // Now safe to access data.pdfBase64
       if (!data.pdfBase64) {
         throw new Error('PDF not received from server');
       }
@@ -406,7 +408,6 @@ export default function Booking() {
       setShowPDFModal(true);
       setSuccess(`Bill ${data.bill_number} created successfully!`);
 
-      // Reset form
       setCart([]);
       setCustomer({ name: '', address: '', gstin: '', lr_number: '', agent_name: '', from: 'SIVAKASI', to: '', through: '' });
       setSelectedCustomer(null);
@@ -544,7 +545,7 @@ export default function Booking() {
                         <th className={`p-3 border ${tableText}`}>Cases</th>
                         <th className={`p-3 border ${tableText}`}>Per</th>
                         <th className={`p-3 border ${tableText}`}>Qty</th>
-                        <th className={`p-3 border ${tableText}`}>Rate</th>
+                        <th className={`p-3 border ${tableText}`}>Rate (₹)</th>
                         <th className={`p-3 border ${tableText}`}>Amount</th>
                         <th className={`p-3 border ${tableText}`}>From</th>
                         <th className={`p-3 border ${tableText}`}></th>
@@ -561,11 +562,40 @@ export default function Booking() {
                             <td className={`p-3 text-center border ${tableText}`}>{idx + 1}</td>
                             <td className={`p-3 text-center border ${tableText}`}>{item.productname}</td>
                             <td className="p-3 text-center border">
-                              <input type="number" min="1" max={item.current_cases} value={item.cases} onChange={e => updateCases(idx, parseInt(e.target.value) || 1)} className="w-20 p-2 border rounded dark:bg-gray-700 hundred:text-md mobile:text-sm" />
+                              <input 
+                                type="number" 
+                                min="1" 
+                                max={item.current_cases} 
+                                value={item.cases} 
+                                onChange={e => updateCases(idx, parseInt(e.target.value) || 1)} 
+                                className="w-20 p-2 border rounded dark:bg-gray-700 hundred:text-md mobile:text-sm" 
+                              />
                             </td>
                             <td className={`p-3 text-center border ${tableText}`}>{item.per_case}</td>
                             <td className={`p-3 text-center border ${tableText}`}>{qty}</td>
-                            <td className={`p-3 text-center border ${tableText}`}>₹{item.rate_per_box.toFixed(2)}</td>
+                            <td className="p-3 text-center border">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={item.rate_per_box}
+                                onChange={(e) => {
+                                  const newRate = parseFloat(e.target.value) || 0;
+                                  setCart(prevCart =>
+                                    prevCart.map((cartItem, i) =>
+                                      i === idx ? { ...cartItem, rate_per_box: newRate } : cartItem
+                                    )
+                                  );
+                                }}
+                                onFocus={(e) => {
+                                  // Select all text when focused (click or tab)
+                                  e.target.select();
+                                }}
+                                className="w-28 p-1.5 text-center border rounded bg-white dark:bg-gray-700 
+                                          text-black dark:text-white hundred:text-sm mobile:text-xs 
+                                          focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                              />
+                            </td>
                             <td className={`p-3 text-center border font-medium ${tableText}`}>₹{finalAmt.toFixed(2)}</td>
                             <td className={`p-3 text-center border ${tableText}`}>{item.godown}</td>
                             <td className="p-3 text-center border">
@@ -719,7 +749,13 @@ export default function Booking() {
                         <button
                           onClick={() => {
                             if (cart.some(i => i.id === item.id)) return setError('Already in cart');
-                            setCart(prev => [...prev, { ...item, cases: 1, discount: 0, godown: selectedGodown.shortName }]);
+                            setCart(prev => [...prev, { 
+                              ...item, 
+                              cases: 1, 
+                              discount: 0, 
+                              godown: selectedGodown.shortName,
+                              rate_per_box: parseFloat(item.rate_per_box) || 0 
+                            }]);
                           }}
                           disabled={item.current_cases <= 0}
                           className="mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold rounded-xl px-6 py-3 w-full text-md transition flex items-center justify-center gap-2"
