@@ -48,6 +48,10 @@ export default function GodownDetail() {
   const [addingProduct, setAddingProduct] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Delete feature states
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [stockToDelete, setStockToDelete] = useState(null);
+
   const styles = {
     input: {
       background: 'linear-gradient(135deg, rgba(255,255,255,0.8), rgba(240,249,255,0.6))',
@@ -200,19 +204,62 @@ export default function GodownDetail() {
     }
   };
 
-  const fetchStockHistory = async stockId => {
+  // ── Only fetches data — does NOT open modal anymore ──
+  const fetchStockHistory = async (stockId) => {
     if (historyCache[stockId]) {
       setStockHistory(historyCache[stockId]);
-      setHistoryModalIsOpen(true);
       return;
     }
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/stock/${stockId}/history`);
-      if (!response.ok) throw new Error('Failed');
+      if (!response.ok) throw new Error('Failed to fetch history');
       const data = await response.json();
       setHistoryCache(prev => ({ ...prev, [stockId]: data }));
       setStockHistory(data);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  // ── New helper: sets selectedStock + opens modal ──
+  const openHistoryModal = (stock) => {
+    setSelectedStock(stock);  // ← This is the key fix
+
+    if (historyCache[stock.id]) {
+      setStockHistory(historyCache[stock.id]);
       setHistoryModalIsOpen(true);
+      return;
+    }
+
+    // Fetch if not cached, then open modal
+    fetchStockHistory(stock.id).then(() => {
+      setHistoryModalIsOpen(true);
+    });
+  };
+
+  const handleDeleteStock = async () => {
+    if (!stockToDelete?.id) return;
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/godowns/${godownId}/stock/${stockToDelete.id}`,
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to delete stock');
+      }
+
+      setShowDeleteConfirmModal(false);
+      setStockToDelete(null);
+      setError('');
+      await fetchGodown(); // Refresh the list
     } catch (err) {
       setError(err.message);
     }
@@ -253,28 +300,23 @@ export default function GodownDetail() {
 
     const wb = XLSX.utils.book_new();
 
-    // ── CURRENT STOCK SHEET ──
     const currentStockData = godown.stocks
       .filter(s => s.current_cases > 0)
-      .map(s => {
-
-        return {
-          'Product Type': capitalize(s.product_type || ''),
-          'Product Name': s.productname || '',
-          'Brand': capitalize(s.brand || ''),
-          'Agent Name': s.agent_name || '-',
-          'Current Cases': s.current_cases,
-          'Per Case': s.per_case,
-          'Total Items': s.current_cases * (s.per_case || 1),
-        };
-      });
+      .map(s => ({
+        'Product Type': capitalize(s.product_type || ''),
+        'Product Name': s.productname || '',
+        'Brand': capitalize(s.brand || ''),
+        'Agent Name': s.agent_name || '-',
+        'Current Cases': s.current_cases,
+        'Per Case': s.per_case,
+        'Total Items': s.current_cases * (s.per_case || 1),
+      }));
 
     if (currentStockData.length > 0) {
       const wsCurrent = XLSX.utils.json_to_sheet(currentStockData);
       XLSX.utils.book_append_sheet(wb, wsCurrent, 'Current Stock');
     }
 
-    // ── HISTORY SHEETS ──
     const historyByType = {};
     filtered.forEach(h => {
       const type = capitalize(h.product_type || 'Unknown');
@@ -544,14 +586,28 @@ export default function GodownDetail() {
                   <div className="mb-4 mobile:mb-2 grid grid-cols-2 gap-2 text-xs mobile:text-[10px]">
                     <div><span className="font-medium text-sm text-gray-700 dark:text-gray-300">Per Case: {s.per_case}</span></div>
                   </div>
-                  <div className="flex justify-end gap-2 mobile:gap-1">
+                  <div className="flex justify-end gap-2 mobile:gap-1 mt-4">
                     <button
-                      onClick={() => fetchStockHistory(s.id)}
+                      onClick={() => openHistoryModal(s)}
                       className="flex w-20 justify-center items-center rounded-md px-2 py-1 mobile:px-1 mobile:py-0.5 text-xs mobile:text-lg font-semibold text-white shadow-sm hover:bg-indigo-700"
                       style={{ background: styles.button.background, border: styles.button.border, boxShadow: styles.button.boxShadow }}
                     >
                       History
                     </button>
+
+                    {localStorage.getItem('userType') === 'admin' && (
+                      <button
+                        onClick={() => {
+                          setStockToDelete(s);
+                          setShowDeleteConfirmModal(true);
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition shadow-sm"
+                        title="Delete this stock entry and its history"
+                      >
+                        <FaTimes className="h-3.5 w-3.5" />
+                        Clear
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -656,28 +712,70 @@ export default function GodownDetail() {
       </Modal>
 
       {/* TAKE MODAL */}
-      <Modal isOpen={takeModalIsOpen} onRequestClose={() => { setTakeModalIsOpen(false); setCasesTaken(''); setSelectedStock(null); }} className="fixed inset-0 flex items-center justify-center p-4" overlayClassName="fixed inset-0 bg-black/50">
+      <Modal
+        isOpen={takeModalIsOpen}
+        onRequestClose={() => {
+          setTakeModalIsOpen(false);
+          setCasesTaken('');
+          setSelectedStock(null);
+        }}
+        className="fixed inset-0 flex items-center justify-center p-4"
+        overlayClassName="fixed inset-0 bg-black/50"
+      >
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-black dark:text-white">Take Cases</h2>
             <button onClick={() => setTakeModalIsOpen(false)}><FaTimes /></button>
           </div>
-          <input type="number" value={casesTaken} onChange={e => setCasesTaken(e.target.value)} className="w-full p-2 border rounded mb-4 text-black dark:text-white" placeholder="Cases to take" min="1" disabled={isTakingStock} />
-          <button onClick={handleTakeStock} disabled={isTakingStock} className="w-full py-2 bg-indigo-600 text-white rounded disabled:opacity-50">
+          <input
+            type="number"
+            value={casesTaken}
+            onChange={e => setCasesTaken(e.target.value)}
+            className="w-full p-2 border rounded mb-4 text-black dark:text-white"
+            placeholder="Cases to take"
+            min="1"
+            disabled={isTakingStock}
+          />
+          <button
+            onClick={handleTakeStock}
+            disabled={isTakingStock}
+            className="w-full py-2 bg-indigo-600 text-white rounded disabled:opacity-50"
+          >
             {isTakingStock ? 'Submitting...' : 'Take'}
           </button>
         </div>
       </Modal>
 
       {/* ADD MODAL */}
-      <Modal isOpen={addModalIsOpen} onRequestClose={() => { setAddModalIsOpen(false); setCasesToAdd(''); setSelectedStock(null); }} className="fixed inset-0 flex items-center justify-center p-4" overlayClassName="fixed inset-0 bg-black/50">
+      <Modal
+        isOpen={addModalIsOpen}
+        onRequestClose={() => {
+          setAddModalIsOpen(false);
+          setCasesToAdd('');
+          setSelectedStock(null);
+        }}
+        className="fixed inset-0 flex items-center justify-center p-4"
+        overlayClassName="fixed inset-0 bg-black/50"
+      >
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-black dark:text-white">Add Cases</h2>
             <button onClick={() => setAddModalIsOpen(false)}><FaTimes /></button>
           </div>
-          <input type="number" value={casesToAdd} onChange={e => setCasesToAdd(e.target.value)} className="w-full p-2 border rounded mb-4 text-black dark:text-white" placeholder="Cases to add" min="1" />
-          <button onClick={handleAddStock} className="w-full py-2 bg-indigo-600 text-white rounded">Add</button>
+          <input
+            type="number"
+            value={casesToAdd}
+            onChange={e => setCasesToAdd(e.target.value)}
+            className="w-full p-2 border rounded mb-4 text-black dark:text-white"
+            placeholder="Cases to add"
+            min="1"
+          />
+          <button
+            onClick={handleAddStock}
+            className="w-full py-2 bg-indigo-600 text-white rounded"
+          >
+            Add
+          </button>
         </div>
       </Modal>
 
@@ -702,7 +800,10 @@ export default function GodownDetail() {
                 ({capitalize(selectedStock?.brand || '')})
               </span>
             </h2>
-            <button className="text-black dark:text-white hover:text-red-500" onClick={() => setHistoryModalIsOpen(false)}>
+            <button
+              className="text-black dark:text-white hover:text-red-500"
+              onClick={() => setHistoryModalIsOpen(false)}
+            >
               <FaTimes size={20} />
             </button>
           </div>
@@ -736,8 +837,12 @@ export default function GodownDetail() {
                         <td className="px-4 py-2 text-sm text-black dark:text-white">{i + 1}</td>
                         <td className="px-4 py-2 text-sm text-black dark:text-white">
                           {new Date(h.date).toLocaleString('en-IN', {
-                            day: '2-digit', month: 'short', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit', hour12: true,
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true,
                           })}
                         </td>
                         <td className={`px-4 py-2 text-sm font-bold ${
@@ -782,32 +887,82 @@ export default function GodownDetail() {
       </Modal>
 
       {/* DOWNLOAD MODAL */}
-      <Modal isOpen={showDownloadModal} onRequestClose={() => setShowDownloadModal(false)} className="fixed inset-0 flex items-center justify-center p-4" overlayClassName="fixed inset-0 bg-black/50">
+      <Modal
+        isOpen={showDownloadModal}
+        onRequestClose={() => setShowDownloadModal(false)}
+        className="fixed inset-0 flex items-center justify-center p-4"
+        overlayClassName="fixed inset-0 bg-black/50"
+      >
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
           <h3 className="text-lg font-bold mb-4 text-black dark:text-white">Download Stock History</h3>
           <div className="space-y-3">
             <label className="flex items-center gap-2">
-              <input type="radio" name="mode" value="all" checked={downloadMode === 'all'} onChange={e => setDownloadMode(e.target.value)} className='text-black dark:text-white'/>
-              <span className='text-black dark:text-white'>All History</span>
+              <input
+                type="radio"
+                name="mode"
+                value="all"
+                checked={downloadMode === 'all'}
+                onChange={e => setDownloadMode(e.target.value)}
+                className="text-black dark:text-white"
+              />
+              <span className="text-black dark:text-white">All History</span>
             </label>
             <label className="flex items-center gap-2">
-              <input type="radio" name="mode" value="date" checked={downloadMode === 'date'} onChange={e => setDownloadMode(e.target.value)} />
-              <span className='text-black dark:text-white'>Specific Date</span>
+              <input
+                type="radio"
+                name="mode"
+                value="date"
+                checked={downloadMode === 'date'}
+                onChange={e => setDownloadMode(e.target.value)}
+              />
+              <span className="text-black dark:text-white">Specific Date</span>
             </label>
             {downloadMode === 'date' && (
-              <DatePicker selected={selectedDate} onChange={d => setSelectedDate(d)} className="w-full p-2 border rounded dark:bg-gray-700 text-black dark:text-white" placeholderText="Select date" dateFormat="yyyy-MM-dd" />
+              <DatePicker
+                selected={selectedDate}
+                onChange={d => setSelectedDate(d)}
+                className="w-full p-2 border rounded dark:bg-gray-700 text-black dark:text-white"
+                placeholderText="Select date"
+                dateFormat="yyyy-MM-dd"
+              />
             )}
             <label className="flex items-center gap-2">
-              <input type="radio" name="mode" value="month" checked={downloadMode === 'month'} onChange={e => setDownloadMode(e.target.value)} />
-              <span className='text-black dark:text-white'>Specific Month</span>
+              <input
+                type="radio"
+                name="mode"
+                value="month"
+                checked={downloadMode === 'month'}
+                onChange={e => setDownloadMode(e.target.value)}
+              />
+              <span className="text-black dark:text-white">Specific Month</span>
             </label>
             {downloadMode === 'month' && (
-              <DatePicker selected={selectedMonth} onChange={d => setSelectedMonth(d)} showMonthYearPicker dateFormat="MM/yyyy" className="w-full p-2 border rounded dark:bg-gray-700 text-black dark:text-white" placeholderText="Select month" />
+              <DatePicker
+                selected={selectedMonth}
+                onChange={d => setSelectedMonth(d)}
+                showMonthYearPicker
+                dateFormat="MM/yyyy"
+                className="w-full p-2 border rounded dark:bg-gray-700 text-black dark:text-white"
+                placeholderText="Select month"
+              />
             )}
           </div>
           <div className="flex justify-end gap-2 mt-6">
-            <button onClick={() => setShowDownloadModal(false)} className="px-4 py-2 text-black dark:text-white">Cancel</button>
-            <button onClick={confirmDownload} disabled={isLoadingHistory || (downloadMode === 'date' && !selectedDate) || (downloadMode === 'month' && !selectedMonth)} className="px-4 py-2 bg-blue-600 rounded disabled:opacity-50 text-white">
+            <button
+              onClick={() => setShowDownloadModal(false)}
+              className="px-4 py-2 text-black dark:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDownload}
+              disabled={
+                isLoadingHistory ||
+                (downloadMode === 'date' && !selectedDate) ||
+                (downloadMode === 'month' && !selectedMonth)
+              }
+              className="px-4 py-2 bg-blue-600 rounded disabled:opacity-50 text-white"
+            >
               {isLoadingHistory ? 'Loading...' : 'Download'}
             </button>
           </div>
@@ -815,11 +970,18 @@ export default function GodownDetail() {
       </Modal>
 
       {/* UNIQUE PRODUCTS MODAL */}
-      <Modal isOpen={showUniqueProductsModal} onRequestClose={() => setShowUniqueProductsModal(false)} className="fixed inset-0 flex items-center justify-center p-4" overlayClassName="fixed inset-0 bg-black/50">
+      <Modal
+        isOpen={showUniqueProductsModal}
+        onRequestClose={() => setShowUniqueProductsModal(false)}
+        className="fixed inset-0 flex items-center justify-center p-4"
+        overlayClassName="fixed inset-0 bg-black/50"
+      >
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-black dark:text-white">Unique Products</h3>
-            <button onClick={() => setShowUniqueProductsModal(false)}><FaTimes /></button>
+            <button onClick={() => setShowUniqueProductsModal(false)}>
+              <FaTimes />
+            </button>
           </div>
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
@@ -843,11 +1005,18 @@ export default function GodownDetail() {
       </Modal>
 
       {/* TOTAL CASES MODAL */}
-      <Modal isOpen={showTotalCasesModal} onRequestClose={() => setShowTotalCasesModal(false)} className="fixed inset-0 flex items-center justify-center p-4" overlayClassName="fixed inset-0 bg-black/50">
+      <Modal
+        isOpen={showTotalCasesModal}
+        onRequestClose={() => setShowTotalCasesModal(false)}
+        className="fixed inset-0 flex items-center justify-center p-4"
+        overlayClassName="fixed inset-0 bg-black/50"
+      >
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-black dark:text-white">Total Cases</h3>
-            <button onClick={() => setShowTotalCasesModal(false)}><FaTimes /></button>
+            <button onClick={() => setShowTotalCasesModal(false)}>
+              <FaTimes />
+            </button>
           </div>
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
@@ -865,6 +1034,65 @@ export default function GodownDetail() {
               ))}
             </tbody>
           </table>
+        </div>
+      </Modal>
+
+      {/* DELETE CONFIRMATION MODAL */}
+      <Modal
+        isOpen={showDeleteConfirmModal}
+        onRequestClose={() => {
+          setShowDeleteConfirmModal(false);
+          setStockToDelete(null);
+        }}
+        className="fixed inset-0 flex items-center justify-center p-4 z-50"
+        overlayClassName="fixed inset-0 bg-black/60 backdrop-blur-sm"
+      >
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full border border-red-200 dark:border-red-900/40 shadow-2xl">
+          <div className="flex justify-between items-center mb-5">
+            <h3 className="text-xl font-bold text-red-600 dark:text-red-400">
+              Clear Stock Entry
+            </h3>
+            <button
+              onClick={() => {
+                setShowDeleteConfirmModal(false);
+                setStockToDelete(null);
+              }}
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              <FaTimes size={20} />
+            </button>
+          </div>
+
+          <p className="text-gray-700 dark:text-gray-300 mb-6">
+            Are you sure you want to <strong>permanently delete</strong> this stock entry?
+            <br /><br />
+            <span className="font-semibold block">
+              {stockToDelete?.productname} ({capitalize(stockToDelete?.brand || '')})
+            </span>
+            <br />
+            <span className="text-sm text-red-600 dark:text-red-400 font-medium block">
+              • All associated history records will also be deleted<br />
+              • This action cannot be undone
+            </span>
+          </p>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setShowDeleteConfirmModal(false);
+                setStockToDelete(null);
+              }}
+              className="flex-1 py-3 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDeleteStock}
+              className="flex-1 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium shadow-sm"
+            >
+              Yes, Continue
+            </button>
+          </div>
         </div>
       </Modal>
 

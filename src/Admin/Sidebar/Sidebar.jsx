@@ -24,7 +24,7 @@ export default function Sidebar() {
   // ────── Permission Matrix ──────
   const can = {
     inventory: userType === "admin",
-    godown: ["admin", "agent", "worker"].includes(userType),
+    godown: ["admin"].includes(userType),
     billing: userType === "admin",
     accounts: ["admin", "worker"].includes(userType),
     analysis: userType === "admin",
