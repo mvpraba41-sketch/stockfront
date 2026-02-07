@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from '../Sidebar/Sidebar';
 import Logout from '../Logout';
 import { API_BASE_URL } from '../../../Config';
-import { FaPlus, FaSpinner, FaTrash } from 'react-icons/fa';
+import { FaPlus, FaSpinner, FaTrash, FaCalendarAlt } from 'react-icons/fa';
 import Select from 'react-select';
+import DatePicker from 'react-datepicker';
+import "react-datepicker/dist/react-datepicker.css";
 
 export default function Godown() {
   const [godowns, setGodowns] = useState([]);
@@ -11,7 +13,7 @@ export default function Godown() {
   const [allProducts, setAllProducts] = useState([]);
 
   const [rows, setRows] = useState([
-    { id: Date.now(), godown: null, brand: null, productType: null, product: null, cases: '' }
+    { id: Date.now(), godown: null, brand: null, productType: null, product: null, cases: '', addedDate: null, showPicker: false }
   ]);
 
   const [error, setError] = useState('');
@@ -36,6 +38,26 @@ export default function Godown() {
   const capitalize = (str) =>
     str ? str.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '';
 
+  // Replace your existing getISTDateString with this:
+  const getDateString = (date) => {
+    if (!date) {
+      return new Date().toLocaleDateString('en-CA'); // "2026-02-07" (today in IST)
+    }
+    return date.toLocaleDateString('en-CA'); // "YYYY-MM-DD" in local timezone (IST)
+  };
+
+  // When displaying any date from backend (which is stored as IST)
+  const formatIST = (dbDateString) => {
+    if (!dbDateString) return 'Today (default)';
+    // dbDateString is like "2025-02-01" or "2025-02-01T00:00:00"
+    const d = new Date(dbDateString);
+    return d.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
   const fetchGodowns = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/godowns`);
@@ -50,10 +72,7 @@ export default function Godown() {
       const res = await fetch(`${API_BASE_URL}/api/brands`);
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
-      setBrands(data.map(b => ({
-        value: b.name,
-        label: capitalize(b.name),
-      })));
+      setBrands(data.map(b => ({ value: b.name, label: capitalize(b.name) })));
     } catch { setError('Failed to load brands'); }
   }, []);
 
@@ -87,10 +106,7 @@ export default function Godown() {
         .map(p => p.product_type)
         .filter(Boolean)
     )];
-    return types.map(t => ({
-      value: t,
-      label: capitalize(t),
-    }));
+    return types.map(t => ({ value: t, label: capitalize(t) }));
   };
 
   const getProductsForBrandAndType = (brandValue, typeValue) => {
@@ -108,7 +124,9 @@ export default function Godown() {
       brand: null,
       productType: null,
       product: null,
-      cases: ''
+      cases: '',
+      addedDate: null,
+      showPicker: false
     }]);
   };
 
@@ -117,20 +135,13 @@ export default function Godown() {
   };
 
   const updateRow = (id, field, value) => {
-    setRows(prev => prev.map(r => {
-      if (r.id === id) {
-        const updated = { ...r, [field]: value };
-        if (field === 'brand') {
-          updated.productType = null;
-          updated.product = null;
-        }
-        if (field === 'brand' || field === 'productType') {
-          updated.product = null;
-        }
-        return updated;
-      }
-      return r;
-    }));
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const togglePicker = (id) => {
+    setRows(prev => prev.map(r =>
+      r.id === id ? { ...r, showPicker: !r.showPicker } : { ...r, showPicker: false }
+    ));
   };
 
   const calculateItems = (product, cases) => {
@@ -151,10 +162,7 @@ export default function Godown() {
       const d = await res.json();
       if (!res.ok) throw new Error(d.message || 'Failed');
 
-      const newGodown = {
-        value: d.id || d.godown_id || Date.now(),
-        label: capitalize(newGodownName.trim()),
-      };
+      const newGodown = { value: d.id, label: capitalize(newGodownName.trim()) };
       setGodowns(prev => [...prev, newGodown]);
 
       setSuccess('Godown created');
@@ -181,7 +189,8 @@ export default function Godown() {
         brand: r.product.brand,
         per_case: r.product.per_case,
         cases_added: parseInt(r.cases, 10),
-        added_by: username,           // ← NEW – same user for all rows in one bulk action
+        added_by: username,
+        added_date: getDateString(e.addedDate),
       })),
     };
 
@@ -194,7 +203,7 @@ export default function Godown() {
       const d = await res.json();
       if (!res.ok) throw new Error(d.message ?? 'Failed');
       setSuccess(`Added stock to ${validRows.length} allocation(s)!`);
-      setRows([{ id: Date.now(), godown: null, brand: null, productType: null, product: null, cases: '' }]);
+      setRows([{ id: Date.now(), godown: null, brand: null, productType: null, product: null, cases: '', addedDate: null, showPicker: false }]);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   };
@@ -325,7 +334,7 @@ export default function Godown() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
                       <label className="block text-sm font-medium mb-2">Cases</label>
                       <input
@@ -343,6 +352,47 @@ export default function Godown() {
                       <div className="text-xl font-bold text-blue-600 dark:text-blue-400 pt-2">
                         {calculateItems(row.product, row.cases).toLocaleString()}
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Calendar Icon – IST Fixed */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium mb-2">Added Date</label>
+                    <div className="relative inline-flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => togglePicker(row.id)}
+                        className="p-2.5 bg-white dark:bg-gray-700 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition"
+                        title={row.addedDate ? formatIST(row.addedDate.toISOString()) : "Select date (defaults to today)"}
+                      >
+                        <FaCalendarAlt className="text-blue-600 text-xl" />
+                      </button>
+
+                      {row.addedDate && (
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          {formatIST(row.addedDate.toISOString())}
+                        </span>
+                      )}
+                      {!row.addedDate && (
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          Today (default)
+                        </span>
+                      )}
+
+                      {row.showPicker && (
+                        <div className="absolute z-50 mt-2 left-0">
+                          <DatePicker
+                            selected={row.addedDate}
+                            onChange={(date) => {
+                              updateRow(row.id, 'addedDate', date);
+                              updateRow(row.id, 'showPicker', false);
+                            }}
+                            onClickOutside={() => updateRow(row.id, 'showPicker', false)}
+                            inline
+                            maxDate={new Date()}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
 

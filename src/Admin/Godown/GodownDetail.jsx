@@ -4,8 +4,8 @@ import Sidebar from '../Sidebar/Sidebar';
 import Logout from '../Logout';
 import { API_BASE_URL } from '../../../Config';
 import {
-  FaMinus, FaHistory, FaTimes, FaPlus, FaDownload,
-  FaSpinner, FaSearch
+  FaHistory, FaTimes, FaPlus, FaDownload,
+  FaSpinner, FaSearch, FaCalendarAlt
 } from 'react-icons/fa';
 import { useParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -17,6 +17,7 @@ Modal.setAppElement('#root');
 
 export default function GodownDetail() {
   const { godownId } = useParams();
+
   const [godown, setGodown] = useState(null);
   const [error, setError] = useState('');
   const [selectedStock, setSelectedStock] = useState(null);
@@ -44,9 +45,11 @@ export default function GodownDetail() {
   const [allProducts, setAllProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [casesAdded, setCasesAdded] = useState('');
+  const [addedDate, setAddedDate] = useState(null);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [addingProduct, setAddingProduct] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Delete feature states
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
@@ -73,6 +76,26 @@ export default function GodownDetail() {
 
   const capitalize = str =>
     str ? str.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '';
+
+  // Replace your existing getISTDateString with this:
+  const getDateString = (date) => {
+    if (!date) {
+      return new Date().toLocaleDateString('en-CA'); // "2026-02-07" (today in IST)
+    }
+    return date.toLocaleDateString('en-CA'); // "YYYY-MM-DD" in local timezone (IST)
+  };
+
+  // When displaying any date from backend (which is stored as IST)
+  const formatIST = (dbDateString) => {
+    if (!dbDateString) return 'Today (default)';
+    // dbDateString is like "2025-02-01" or "2025-02-01T00:00:00"
+    const d = new Date(dbDateString);
+    return d.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
 
   const fetchAllProducts = useCallback(async () => {
     try {
@@ -136,6 +159,7 @@ export default function GodownDetail() {
 
     setAddingProduct(true);
     setError('');
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/godowns/${godownId}/stock`, {
         method: 'POST',
@@ -147,6 +171,7 @@ export default function GodownDetail() {
           brand: selectedProduct.brand?.toLowerCase().replace(/\s+/g, '_') || '',
           cases_added: parseInt(casesAdded),
           added_by: username,
+          added_date: getDateString(addedDate),
         }),
       });
       const data = await res.json();
@@ -155,6 +180,8 @@ export default function GodownDetail() {
       setShowAddProductModal(false);
       setSelectedProduct(null);
       setCasesAdded('');
+      setAddedDate(null);
+      setShowDatePicker(false);
       setError('');
       await fetchGodown();
       await fetchAllProducts();
@@ -204,7 +231,6 @@ export default function GodownDetail() {
     }
   };
 
-  // ── Only fetches data — does NOT open modal anymore ──
   const fetchStockHistory = async (stockId) => {
     if (historyCache[stockId]) {
       setStockHistory(historyCache[stockId]);
@@ -222,9 +248,8 @@ export default function GodownDetail() {
     }
   };
 
-  // ── New helper: sets selectedStock + opens modal ──
   const openHistoryModal = (stock) => {
-    setSelectedStock(stock);  // ← This is the key fix
+    setSelectedStock(stock);
 
     if (historyCache[stock.id]) {
       setStockHistory(historyCache[stock.id]);
@@ -232,7 +257,6 @@ export default function GodownDetail() {
       return;
     }
 
-    // Fetch if not cached, then open modal
     fetchStockHistory(stock.id).then(() => {
       setHistoryModalIsOpen(true);
     });
@@ -259,7 +283,7 @@ export default function GodownDetail() {
       setShowDeleteConfirmModal(false);
       setStockToDelete(null);
       setError('');
-      await fetchGodown(); // Refresh the list
+      await fetchGodown();
     } catch (err) {
       setError(err.message);
     }
@@ -646,13 +670,15 @@ export default function GodownDetail() {
         </div>
       </div>
 
-      {/* ADD PRODUCT MODAL */}
+      {/* ADD PRODUCT MODAL – with IST fix */}
       <Modal
         isOpen={showAddProductModal}
         onRequestClose={() => {
           setShowAddProductModal(false);
           setSelectedProduct(null);
           setCasesAdded('');
+          setAddedDate(null);
+          setShowDatePicker(false);
           setError('');
         }}
         className="fixed inset-0 flex items-center justify-center p-4"
@@ -691,12 +717,45 @@ export default function GodownDetail() {
             />
           </div>
 
-          {error && <p className="text-red-600 text-sm mb-2">{error}</p>}
+          <div className="mb-6">
+            <label className="block text-sm font-medium mb-2 text-black dark:text-white">Added Date</label>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                title={addedDate ? formatIST(addedDate.toISOString()) : "Click to select date (defaults to today)"}
+              >
+                <FaCalendarAlt className="text-blue-600 text-2xl" />
+              </button>
 
-          <div className="flex gap-2">
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {addedDate ? formatIST(addedDate.toISOString()) : 'Today (default)'}
+              </span>
+            </div>
+
+            {showDatePicker && (
+              <div className="mt-3 z-50">
+                <DatePicker
+                  selected={addedDate}
+                  onChange={(date) => {
+                    setAddedDate(date);
+                    setShowDatePicker(false);
+                  }}
+                  onClickOutside={() => setShowDatePicker(false)}
+                  inline
+                  maxDate={new Date()}
+                />
+              </div>
+            )}
+          </div>
+
+          {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+
+          <div className="flex gap-3">
             <button
               onClick={() => setShowAddProductModal(false)}
-              className="flex-1 py-2 border rounded text-black dark:text-white"
+              className="flex-1 py-2 border rounded text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -746,7 +805,7 @@ export default function GodownDetail() {
         </div>
       </Modal>
 
-      {/* ADD MODAL */}
+      {/* ADD MODAL (existing stock add) */}
       <Modal
         isOpen={addModalIsOpen}
         onRequestClose={() => {
@@ -813,7 +872,7 @@ export default function GodownDetail() {
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">No</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Date & Time</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Date</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Action</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Cases</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Total Qty</th>
@@ -837,12 +896,10 @@ export default function GodownDetail() {
                         <td className="px-4 py-2 text-sm text-black dark:text-white">{i + 1}</td>
                         <td className="px-4 py-2 text-sm text-black dark:text-white">
                           {new Date(h.date).toLocaleString('en-IN', {
+                            timeZone: 'Asia/Kolkata',
                             day: '2-digit',
                             month: 'short',
                             year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: true,
                           })}
                         </td>
                         <td className={`px-4 py-2 text-sm font-bold ${
