@@ -39,7 +39,7 @@ const ChallanPDF = ({ data }) => {
         <View style={pdfStyles.header}>
           <View style={pdfStyles.customerInfo}>
             <Text style={pdfStyles.label}>To:</Text>
-            <Text style={pdfStyles.valueBold}>{data.customer_name}</Text>
+            <Text style={pdfStyles.valueBold}>{data.name}</Text>
             {data.address && <Text style={pdfStyles.value}>{data.address}</Text>}
             {data.gstin && <Text style={pdfStyles.value}>GSTIN: {data.gstin}</Text>}
             <Text style={pdfStyles.value}>Created By: {data.created_by}</Text>

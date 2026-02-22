@@ -171,7 +171,8 @@ export default function Godown() {
     finally { setLoading(false); }
   };
 
-  const handleBulkAddStock = async () => {
+  const handleBulkAddStock = async (e) => {
+    e.preventDefault();
     const username = localStorage.getItem('username') || 'Unknown';
 
     const validRows = rows.filter(r =>

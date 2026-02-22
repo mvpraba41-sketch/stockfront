@@ -55,6 +55,15 @@ export default function GodownDetail() {
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [stockToDelete, setStockToDelete] = useState(null);
 
+  // Transfer feature states
+  const [transferModalIsOpen, setTransferModalIsOpen] = useState(false);
+  const [targetGodown, setTargetGodown] = useState(null);
+  const [casesTransfer, setCasesTransfer] = useState('');
+  const [transferDate, setTransferDate] = useState(null);
+  const [showTransferDatePicker, setShowTransferDatePicker] = useState(false);
+  const [godowns, setGodowns] = useState([]);
+  const [transferring, setTransferring] = useState(false);
+
   const styles = {
     input: {
       background: 'linear-gradient(135deg, rgba(255,255,255,0.8), rgba(240,249,255,0.6))',
@@ -108,6 +117,17 @@ export default function GodownDetail() {
     }
   }, []);
 
+  const fetchGodowns = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/godowns/fast`);
+      if (!res.ok) throw new Error('Failed to fetch godowns');
+      const data = await res.json();
+      setGodowns(data);
+    } catch (err) {
+      console.error('Failed to load godowns:', err);
+    }
+  };
+
   const fetchGodown = async () => {
     setIsLoading(true);
     setIsLoadingHistory(true);
@@ -147,6 +167,7 @@ export default function GodownDetail() {
   useEffect(() => {
     fetchGodown();
     fetchAllProducts();
+    fetchGodowns();
   }, [godownId, fetchAllProducts]);
 
   const handleAddProductToGodown = async () => {
@@ -324,6 +345,7 @@ export default function GodownDetail() {
 
     const wb = XLSX.utils.book_new();
 
+    // ─── Current Stock Sheet ─────────────────────────────────────────────────────
     const currentStockData = godown.stocks
       .filter(s => s.current_cases > 0)
       .map(s => ({
@@ -333,7 +355,10 @@ export default function GodownDetail() {
         'Agent Name': s.agent_name || '-',
         'Current Cases': s.current_cases,
         'Per Case': s.per_case,
+        'Taken Cases': s.taken_cases || 0,
         'Total Items': s.current_cases * (s.per_case || 1),
+        'Date Added': s.date_added ? formatIST(s.date_added) : '-',
+        'Last Taken': s.last_taken_date ? formatIST(s.last_taken_date) : '-',
       }));
 
     if (currentStockData.length > 0) {
@@ -341,23 +366,34 @@ export default function GodownDetail() {
       XLSX.utils.book_append_sheet(wb, wsCurrent, 'Current Stock');
     }
 
+    // ─── History Sheet – Now with customer_name & correct Performed By ───────────
     const historyByType = {};
     filtered.forEach(h => {
       const type = capitalize(h.product_type || 'Unknown');
       if (!historyByType[type]) historyByType[type] = [];
+
+      // Performed By logic: prioritize taken_by for OUT, added_by for IN
+      let performedBy = '-';
+      if (h.action === 'added') {
+        performedBy = h.added_by || h.taken_by || '-';
+      } else if (h.action === 'taken') {
+        performedBy = h.taken_by || h.added_by || '-';
+      }
+
       historyByType[type].push({
-        'Date': new Date(h.date).toLocaleString('en-IN', {
+        'Date & Time': new Date(h.date).toLocaleString('en-IN', {
           timeZone: 'Asia/Kolkata',
           day: '2-digit', month: 'short', year: 'numeric',
           hour: '2-digit', minute: '2-digit', hour12: true
         }),
         'Product': h.productname || '',
         'Brand': capitalize(h.brand || ''),
-        'Action': h.action === 'added' ? 'IN' : 'OUT',
+        'Action': h.action === 'added' ? 'IN (Added)' : 'OUT (Taken)',
         'Cases': h.action === 'added' ? `+${h.cases}` : `-${h.cases}`,
-        'Items': h.per_case_total || 0,
+        'Total Qty': h.per_case_total || 0,
         'Agent Name': h.agent_name || '-',
-        'Added By': h.action === 'added' ? (h.added_by || '-') : '-',
+        'Performed By': performedBy,
+        'Customer / Note': h.customer_name || '-',   // ← Now included!
       });
     });
 
@@ -397,6 +433,60 @@ export default function GodownDetail() {
     setSelectedStock(stock);
     setCasesToAdd('');
     setAddModalIsOpen(true);
+  };
+
+  const openTransferModal = stock => {
+    setSelectedStock(stock);
+    setCasesTransfer('');
+    setTargetGodown(null);
+    setTransferDate(null);
+    setShowTransferDatePicker(false);
+    setTransferModalIsOpen(true);
+  };
+
+  const handleTransferStock = async () => {
+    if (
+      !targetGodown ||
+      !casesTransfer ||
+      parseInt(casesTransfer) <= 0 ||
+      parseInt(casesTransfer) > selectedStock.current_cases
+    ) {
+      setError('Select valid godown and cases (cannot exceed current cases)');
+      return;
+    }
+
+    const username = localStorage.getItem('username') || 'Unknown';
+
+    setTransferring(true);
+    setError('');
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/stock/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_stock_id: selectedStock.id,
+          target_godown_id: targetGodown.value,
+          cases_transferred: parseInt(casesTransfer),
+          added_by: username,
+          transfer_date: getDateString(transferDate),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to transfer');
+
+      setTransferModalIsOpen(false);
+      setTargetGodown(null);
+      setCasesTransfer('');
+      setTransferDate(null);
+      setShowTransferDatePicker(false);
+      setError('');
+      await fetchGodown();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTransferring(false);
+    }
   };
 
   const currentStocks = godown ? godown.stocks.filter(s => s.current_cases > 0) : [];
@@ -456,6 +546,13 @@ export default function GodownDetail() {
         }))
         .sort((a, b) => a.label.localeCompare(b.label))
     : [];
+
+  const godownOptions = godowns
+    .filter(g => g.id !== parseInt(godownId))
+    .map(g => ({
+      value: g.id,
+      label: capitalize(g.name),
+    }));
 
   if (isLoading) {
     return (
@@ -632,6 +729,13 @@ export default function GodownDetail() {
                         Clear
                       </button>
                     )}
+                    <button
+                      onClick={() => openTransferModal(s)}
+                      className="flex w-20 justify-center items-center rounded-md px-2 py-1 text-xs font-semibold text-white shadow-sm hover:bg-yellow-600"
+                      style={{ background: 'linear-gradient(135deg, #d97706, #f59e0b)' }}
+                    >
+                      Transfer
+                    </button>
                   </div>
                 </div>
               </div>
@@ -877,7 +981,8 @@ export default function GodownDetail() {
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Cases</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Total Qty</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Agent Name</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Added By</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Performed By</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-black dark:text-white uppercase tracking-wider">Customer</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -888,7 +993,7 @@ export default function GodownDetail() {
                       <tr
                         key={i}
                         className={
-                          h.action === 'added'
+                          h.action === 'added' 
                             ? 'bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-800/40'
                             : 'bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-800/40'
                         }
@@ -913,13 +1018,16 @@ export default function GodownDetail() {
                         <td className="px-4 py-2 text-sm text-black dark:text-white">{h.per_case_total || 0}</td>
                         <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">{h.agent_name || '-'}</td>
                         <td className="px-4 py-2 text-sm text-sky-600 font-medium">
-                          {h.action === 'added' ? (h.added_by || '-') : '-'}
+                          {h.action === 'added' ? (h.added_by ) : h.taken_by}
+                        </td>
+                        <td className="px-4 py-2 text-sm text-sky-600 font-medium">
+                          {h.action === 'taken' ? (h.customer_name || '-') : '-'}
                         </td>
                       </tr>
                     ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       No history available
                     </td>
                   </tr>
@@ -1148,6 +1256,108 @@ export default function GodownDetail() {
               className="flex-1 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium shadow-sm"
             >
               Yes, Continue
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* TRANSFER MODAL */}
+      <Modal
+        isOpen={transferModalIsOpen}
+        onRequestClose={() => {
+          setTransferModalIsOpen(false);
+          setTargetGodown(null);
+          setCasesTransfer('');
+          setTransferDate(null);
+          setShowTransferDatePicker(false);
+          setError('');
+        }}
+        className="fixed inset-0 flex items-center justify-center p-4"
+        overlayClassName="fixed inset-0 bg-black/50"
+      >
+        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-black dark:text-white">Transfer Stock</h3>
+            <button onClick={() => setTransferModalIsOpen(false)}><FaTimes /></button>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-1 text-black dark:text-white">Target Godown</label>
+            <Select
+              value={targetGodown}
+              onChange={setTargetGodown}
+              options={godownOptions}
+              placeholder="Select godown..."
+              isSearchable
+              isClearable
+              className="react-select-container"
+              classNamePrefix="react-select"
+              noOptionsMessage={() => 'No other godowns available'}
+            />
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-1 text-black dark:text-white">Cases to Transfer</label>
+            <input
+              type="number"
+              value={casesTransfer}
+              onChange={e => setCasesTransfer(e.target.value)}
+              placeholder="10"
+              min="1"
+              max={selectedStock?.current_cases}
+              className="w-full p-2 border rounded text-black dark:text-white dark:bg-gray-700"
+            />
+            <p className="text-xs text-gray-500 mt-1">Max: {selectedStock?.current_cases}</p>
+          </div>
+
+          <div className="mb-6">
+            <label className="block text-sm font-medium mb-2 text-black dark:text-white">Transfer Date</label>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowTransferDatePicker(!showTransferDatePicker)}
+                className="p-3 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                title={transferDate ? formatIST(transferDate.toISOString()) : "Click to select date (defaults to today)"}
+              >
+                <FaCalendarAlt className="text-blue-600 text-2xl" />
+              </button>
+
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {transferDate ? formatIST(transferDate.toISOString()) : 'Today (default)'}
+              </span>
+            </div>
+
+            {showTransferDatePicker && (
+              <div className="mt-3 z-50">
+                <DatePicker
+                  selected={transferDate}
+                  onChange={(date) => {
+                    setTransferDate(date);
+                    setShowTransferDatePicker(false);
+                  }}
+                  onClickOutside={() => setShowTransferDatePicker(false)}
+                  inline
+                  maxDate={new Date()}
+                />
+              </div>
+            )}
+          </div>
+
+          {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setTransferModalIsOpen(false)}
+              className="flex-1 py-2 border rounded text-black dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleTransferStock}
+              disabled={transferring || !targetGodown || !casesTransfer}
+              className="flex-1 py-2 bg-yellow-600 text-white rounded disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {transferring ? <>Transferring... <FaSpinner className="animate-spin" /></> : 'Transfer'}
             </button>
           </div>
         </div>

@@ -223,7 +223,7 @@ export default function Booking() {
       godown: p.shortGodown,
       per_case: p.per_case || 1,
       current_cases: p.current_cases || 0,
-      rate_per_box: parseFloat(p.rate_per_box) || 0   // editable field
+      rate_per_box: parseFloat(p.rate_per_box) || 0
     }]);
     setSearchQuery('');
     setGlobalProducts([]);
@@ -233,6 +233,11 @@ export default function Booking() {
     const maxCases = fromChallan ? 999999 : (cart[idx].current_cases || 999999);
     const cases = Math.max(1, Math.min(val || 1, maxCases));
     setCart(prev => prev.map((i, i2) => i2 === idx ? { ...i, cases } : i));
+  };
+
+  const updatePerCase = (idx, val) => {
+    const newPer = Math.max(1, parseInt(val) || 1);
+    setCart(prev => prev.map((i, i2) => i2 === idx ? { ...i, per_case: newPer } : i));
   };
 
   const updateRate = (idx, val) => {
@@ -271,7 +276,7 @@ export default function Booking() {
     }
 
     const totalTax = cgst + sgst + igst;
-    const grandTotal = Math.round(netTaxable + totalTax + extraTaxableAmt);
+    const grandTotal = Math.round(netTaxable + totalTax);
 
     return {
       subtotal: Number(subtotal.toFixed(2)),
@@ -310,18 +315,22 @@ export default function Booking() {
       });
 
       const items = Array.isArray(fullChallan.items) ? fullChallan.items : [];
-      const cartItems = items.map(item => ({
-        ...item,
-        id: item.id,
-        productname: item.productname,
-        brand: item.brand || '',
-        cases: Number(item.cases),
-        per_case: Number(item.per_case || 1),
-        rate_per_box: parseFloat(item.rate_per_box || 0),
-        discount: 0,
-        godown: item.godown || fullChallan.from || 'SIVAKASI',
-        current_cases: 999999
-      }));
+
+      const cartItems = items.map(item => {
+        const rate = parseFloat(item.rate_per_box);
+        return {
+          ...item,
+          id: item.id,
+          productname: item.productname || '',
+          brand: item.brand || '',
+          cases: Number(item.cases) || 0,
+          per_case: Number(item.per_case) || 1,
+          rate_per_box: rate,
+          discount: parseFloat(item.discount_percent || item.discount || 0), // support both names
+          godown: item.godown || fullChallan.from || 'SIVAKASI',
+          current_cases: 999999
+        };
+      });
 
       setCart(cartItems);
       setFromChallan(true);
@@ -333,9 +342,21 @@ export default function Booking() {
       );
       if (matchedGodown) setSelectedGodown(matchedGodown);
 
-      setSuccess(`Challan ${challan.challan_number} loaded! Ready to generate bill.`);
+      setSuccess(`Challan ${challan.challan_number} loaded successfully!`);
       setShowPendingDropdown(false);
+
+      console.table(
+        cartItems.map(i => ({
+          product: i.productname.slice(0, 30),
+          cases: i.cases,
+          per_case: i.per_case,
+          rate: i.rate_per_box,
+          qty: i.cases * i.per_case,
+          amount: (i.cases * i.per_case * i.rate_per_box).toFixed(0)
+        }))
+      );
     } catch (err) {
+      console.error('Error loading challan:', err);
       setError(err.message || 'Failed to load challan');
     }
   };
@@ -349,6 +370,7 @@ export default function Booking() {
     setLoading(true);
     setError('');
     setSuccess('');
+    const username = localStorage.getItem('username') || 'Unknown';
 
     try {
       const payload = {
@@ -371,21 +393,22 @@ export default function Booking() {
         from_challan: fromChallan,
         challan_id: challanId,
         is_direct_bill: !fromChallan,
+        performed_by: username,
         items: cart.map(i => ({
           id: Number(i.id),
           productname: i.productname?.trim() || '',
           brand: i.brand?.trim() || '',
           cases: Number(i.cases) || 1,
           per_case: Number(i.per_case) || 1,
-          discount_percent: parseFloat(i.discount || 0),
+          discount_percent: parseFloat(i.discount) || 0, // ← fixed: use correct field name
           godown: i.godown?.trim() || 'SIVAKASI',
-          rate_per_box: parseFloat(i.rate_per_box) || 0   // ← edited price is sent here
+          rate_per_box: parseFloat(i.rate_per_box) || 0
         }))
       };
 
-      const endpoint = fromChallan && challanId 
-        ? `${API_BASE_URL}/api/challan/${challanId}/convert`
-        : `${API_BASE_URL}/api/booking`;
+      console.log('Sending payload to server:', JSON.stringify(payload, null, 2));
+
+      const endpoint = `${API_BASE_URL}/api/booking`;
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -394,19 +417,24 @@ export default function Booking() {
       });
 
       const data = await res.json();
+      console.log('Server response:', data);
 
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to generate bill');
+        throw new Error(data.message || `Server error: ${res.status}`);
       }
 
-      if (!data.pdfBase64) {
-        throw new Error('PDF not received from server');
-      }
+      setSuccess(`Bill ${data.bill_number || 'Unknown'} created successfully!`);
 
-      setPdfBlobUrl(data.pdfBase64);
-      setBillNumber(data.bill_number || 'Unknown');
-      setShowPDFModal(true);
-      setSuccess(`Bill ${data.bill_number} created successfully!`);
+      if (data.pdfBase64) {
+        setPdfBlobUrl(data.pdfBase64);
+        setBillNumber(data.bill_number || 'Unknown');
+        setShowPDFModal(true);
+      } else {
+        setError(
+          'Bill created and saved successfully, but PDF generation failed on the server. ' +
+          'Please check server logs for PDF errors. The bill data is saved and can be viewed in the admin panel.'
+        );
+      }
 
       setCart([]);
       setCustomer({ name: '', address: '', gstin: '', lr_number: '', agent_name: '', from: 'SIVAKASI', to: '', through: '' });
@@ -565,13 +593,13 @@ export default function Booking() {
                               <input 
                                 type="number" 
                                 min="1" 
-                                max={item.current_cases} 
+                                max={item.current_cases || 999999} 
                                 value={item.cases} 
                                 onChange={e => updateCases(idx, parseInt(e.target.value) || 1)} 
                                 className="w-20 p-2 border rounded dark:bg-gray-700 hundred:text-md mobile:text-sm" 
                               />
                             </td>
-                            <td className={`p-3 text-center border ${tableText}`}>{item.per_case}</td>
+                            <td className="p-3 text-center border">{item.per_case}</td>
                             <td className={`p-3 text-center border ${tableText}`}>{qty}</td>
                             <td className="p-3 text-center border">
                               <input
@@ -579,18 +607,8 @@ export default function Booking() {
                                 step="0.01"
                                 min="0"
                                 value={item.rate_per_box}
-                                onChange={(e) => {
-                                  const newRate = parseFloat(e.target.value) || 0;
-                                  setCart(prevCart =>
-                                    prevCart.map((cartItem, i) =>
-                                      i === idx ? { ...cartItem, rate_per_box: newRate } : cartItem
-                                    )
-                                  );
-                                }}
-                                onFocus={(e) => {
-                                  // Select all text when focused (click or tab)
-                                  e.target.select();
-                                }}
+                                onChange={e => updateRate(idx, e.target.value)}
+                                onFocus={e => e.target.select()}
                                 className="w-28 p-1.5 text-center border rounded bg-white dark:bg-gray-700 
                                           text-black dark:text-white hundred:text-sm mobile:text-xs 
                                           focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
