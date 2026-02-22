@@ -489,7 +489,7 @@ export default function Billing() {
 
                 <FloatingLabelInput placeholder="Party Name *" value={customer.name} onChange={e => setCustomer({...customer, name: e.target.value})} />
                 <FloatingLabelInput placeholder="Address" value={customer.address} onChange={e => setCustomer({...customer, address: e.target.value})} />
-                <FloatingLabelInput placeholder="From" value={customer.gstin} onChange={e => setCustomer({...customer, gstin: e.target.value})} />
+                <FloatingLabelInput placeholder="Customer GST " value={customer.gstin} onChange={e => setCustomer({...customer, gstin: e.target.value})} />
                 <FloatingLabelInput placeholder="Destination" value={destination} onChange={e => setDestination(e.target.value)} />
                 <FloatingLabelInput placeholder="Through" value={through} onChange={e => setThrough(e.target.value)} />
               </div>

@@ -87,20 +87,16 @@ export default function InvoiceTemplate({ booking = {}, company = {}, states = [
       <div style={{ border: "1px solid #000" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", borderBottom: "1px double #000", padding: "10px 20px" }}>
           <div style={{ width: "150px" }}>
-            {/* Logo placeholder */}
+            {company?.logo_url && <img src={company.logo_url} style={{ width: "100%", height: 90, objectFit: "contain" }} alt="Logo" />}
           </div>
           <div style={{ textAlign: "center", lineHeight: 1.4, width: "1000px" }}>
-            <div style={{ display: "inline-flex", justifyContent: "center", alignItems: "center", fontSize: 15, fontWeight: 900, textTransform: "uppercase", border: "1px solid #000", padding: "8px 10px", minWidth: "200px" }}>
-              {invoiceTitle}
-            </div>
             <div style={{ fontSize: 28, fontWeight: 900, textTransform: "uppercase", marginTop: 8 }}>
               {company?.company_name || "NISHA TRADERS"}
             </div>
             <div style={{ fontSize: 15 }}>{addrLine1}</div>
             <div style={{ fontSize: 15 }}>{addrLine2}</div>
             <div style={{ fontSize: 14, marginTop: 6, fontWeight: "bold" }}>
-              GSTIN: {company?.gstin || ""} &nbsp;&nbsp; 
-              Mobile: {company?.mobile || ""} &nbsp;&nbsp; 
+              GSTIN: {company?.gstin || ""} &nbsp;&nbsp;
               Email: {company?.email || ""}
             </div>
           </div>
@@ -116,24 +112,27 @@ export default function InvoiceTemplate({ booking = {}, company = {}, states = [
             {(customer.address || "").split("\n").map((line, i) => (
               <div key={i}>{line || "\u00A0"}</div>
             ))}
+            <div style={{ marginTop: 6 }}>GSTIN : {customer.gstin || "---"}</div>
             <div style={{ marginTop: 6 }}>
               Place of Supply : {getPlaceOfSupply()}
             </div>
           </div>
           <div style={{ width: 383, padding: 15, fontSize: 14 }}>
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", fontSize: 15, fontWeight: 900, textTransform: "uppercase", padding: "8px 10px", minWidth: "200px" }}>
+              {invoiceTitle}
+            </div>
             <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #000", paddingBottom: 6 }}>
               <div>No. : <strong>{billNumber}</strong></div>
               <div>Date : {billDate ? format(new Date(billDate), "dd/MM/yyyy") : format(new Date(), "dd/MM/yyyy")}</div>
             </div>
             <div style={{ marginTop: 6 }}>Through : {through}</div>
             <div style={{ marginTop: 6 }}>No. of Cases : {totalCases} Cases</div>
-            <div style={{ marginTop: 6 }}>GSTIN : {customer.gstin || "---"}</div>
             <div style={{ marginTop: 6 }}>Destination : {destination || customer.place || "__________"}</div>
           </div>
         </div>
 
         {/* Table remains the same */}
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "center" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, textAlign: "center", borderBottom: "1px solid #000" }}>
           <thead>
             <tr>
               <th style={{ padding: 6, width: "14%", background: "#f1f1f1", fontWeight: 700, borderBottom: "1px solid #000" }}>
@@ -157,34 +156,44 @@ export default function InvoiceTemplate({ booking = {}, company = {}, states = [
             </tr>
           </thead>
           <tbody>
-            {cart.map((it, idx) => (
-              <tr key={idx}>
-                <td style={{ borderBottom: "1px solid #000", padding: 6 }}></td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6 }}>
-                  {it.productname || ''}
-                </td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6, fontWeight: 700 }}>
-                  {it.cases || 0}
-                </td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6 }}>
-                  {it.cases || 0} Case
-                </td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6 }}>
-                  {(parseFloat(it.rate_per_box) || 0).toFixed(2)}
-                </td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6, fontWeight: 700 }}>
-                  {((parseInt(it.cases) || 0) * (parseFloat(it.rate_per_box) || 0)).toFixed(2)}
+            {cart.length > 0 ? (
+              cart.map((it, idx) => (
+                <tr key={idx}>
+                  <td style={{ borderBottom: "1px solid #000", padding: 6 }}></td>
+                  <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6 }}>
+                    {it.productname || ''}
+                  </td>
+                  <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6, fontWeight: 700 }}>
+                    {it.cases || 0}
+                  </td>
+                  <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6 }}>
+                    {it.cases || 0} Case
+                  </td>
+                  <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6 }}>
+                    {(parseFloat(it.rate_per_box) || 0).toFixed(2)}
+                  </td>
+                  <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 6, fontWeight: 700 }}>
+                    {((parseInt(it.cases) || 0) * (parseFloat(it.rate_per_box) || 0)).toFixed(2)}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6} style={{ padding: 12, textAlign: "center", fontStyle: "italic", borderBottom: "1px solid #000" }}>
+                  No products added
                 </td>
               </tr>
-            ))}
-            {Array.from({ length: Math.max(0, 10 - cart.length) }).map((_, i) => (
+            )}
+
+            {/* Filler rows — NO bottom border, just vertical lines to maintain structure */}
+            {cart.length > 0 && Array.from({ length: Math.max(0, 10 - cart.length) }).map((_, i) => (
               <tr key={"blank-" + i}>
-                <td style={{ borderBottom: "1px solid #000", padding: 12 }}>&nbsp;</td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
-                <td style={{ borderBottom: "1px solid #000", borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
+                <td style={{ padding: 12 }}>&nbsp;</td>
+                <td style={{ borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
+                <td style={{ borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
+                <td style={{ borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
+                <td style={{ borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
+                <td style={{ borderLeft: "1px solid #000", padding: 12 }}>&nbsp;</td>
               </tr>
             ))}
           </tbody>
