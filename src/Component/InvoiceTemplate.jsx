@@ -93,6 +93,9 @@ export default function InvoiceTemplate({ booking = {}, company = {}, states = [
             <div style={{ fontSize: 28, fontWeight: 900, textTransform: "uppercase", marginTop: 8 }}>
               {company?.company_name || "NISHA TRADERS"}
             </div>
+            <div style={{ fontSize: 15, textTransform: "uppercase", marginTop: -5, fontFamily: 'italic', marginBottom: 5 }}>
+              {company?.tagline}
+            </div>
             <div style={{ fontSize: 15 }}>{addrLine1}</div>
             <div style={{ fontSize: 15 }}>{addrLine2}</div>
             <div style={{ fontSize: 14, marginTop: 6, fontWeight: "bold" }}>
