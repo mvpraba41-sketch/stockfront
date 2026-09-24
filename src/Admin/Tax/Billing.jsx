@@ -33,11 +33,36 @@ const FloatingLabelInput = ({ value, onChange, placeholder, type = "text" }) => 
   );
 };
 
+/* ─── Helper: Current Date in Indian Timezone (YYYY-MM-DD) ─── */
+const getIndianDate = () => {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(new Date());
+    const year = parts.find(p => p.type === 'year').value;
+    const month = parts.find(p => p.type === 'month').value;
+    const day = parts.find(p => p.type === 'day').value;
+    return `${year}-${month}-${day}`;
+  } catch {
+    const d = new Date();
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const ist = new Date(utc + (3600000 * 5.5));
+    const year = ist.getFullYear();
+    const month = String(ist.getMonth() + 1).padStart(2, '0');
+    const day = String(ist.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+};
+
 export default function Billing() {
   const [companies, setCompanies] = useState([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
   const [company, setCompany] = useState(null);
 
+  const [billDate, setBillDate] = useState(getIndianDate());
   const [billNumber, setBillNumber] = useState('Generating...');
   const [manualBillNo, setManualBillNo] = useState('');
   const [suggestedBillNo, setSuggestedBillNo] = useState('');
@@ -244,6 +269,7 @@ export default function Billing() {
       setPdfUrl(pdfUrlTemp);
 
       const bookingData = {
+        bill_date: billDate,
         customer_name: customer.name,
         customer_address: customer.address || '',
         customer_gstin: customer.gstin || '',
@@ -487,6 +513,16 @@ export default function Billing() {
                   )}
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Bill Date *</label>
+                  <input
+                    type="date"
+                    value={billDate}
+                    onChange={(e) => setBillDate(e.target.value)}
+                    className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white text-black"
+                  />
+                </div>
+
                 <FloatingLabelInput placeholder="Party Name *" value={customer.name} onChange={e => setCustomer({...customer, name: e.target.value})} />
                 <FloatingLabelInput placeholder="Address" value={customer.address} onChange={e => setCustomer({...customer, address: e.target.value})} />
                 <FloatingLabelInput placeholder="Customer GST " value={customer.gstin} onChange={e => setCustomer({...customer, gstin: e.target.value})} />
@@ -612,7 +648,7 @@ export default function Billing() {
               }}
               company={company}
               states={states}
-              billDate={new Date()}
+              billDate={billDate}
             />
           </div>
 

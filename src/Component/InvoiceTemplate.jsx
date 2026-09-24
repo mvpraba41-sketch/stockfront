@@ -126,7 +126,14 @@ export default function InvoiceTemplate({ booking = {}, company = {}, states = [
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #000", paddingBottom: 6 }}>
               <div>No. : <strong>{billNumber}</strong></div>
-              <div>Date : {billDate ? format(new Date(billDate), "dd/MM/yyyy") : format(new Date(), "dd/MM/yyyy")}</div>
+              <div>Date : {(() => {
+                if (!billDate) return format(new Date(), "dd/MM/yyyy");
+                if (typeof billDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(billDate)) {
+                  const [y, m, d] = billDate.split('T')[0].split('-');
+                  return `${d}/${m}/${y}`;
+                }
+                return format(new Date(billDate), "dd/MM/yyyy");
+              })()}</div>
             </div>
             <div style={{ marginTop: 6 }}>Through : {through}</div>
             <div style={{ marginTop: 6 }}>No. of Cases : {totalCases} Cases</div>

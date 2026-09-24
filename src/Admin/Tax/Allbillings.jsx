@@ -42,7 +42,14 @@ export default function AllBillings() {
         const statesData = await statesRes.json();
         const companiesData = await companiesRes.json();
 
-        const sorted = bookingsData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        const sorted = (Array.isArray(bookingsData) ? bookingsData : []).sort((a, b) => {
+          const numA = parseInt(String(a.bill_no || '').replace(/\D/g, ''), 10) || 0;
+          const numB = parseInt(String(b.bill_no || '').replace(/\D/g, ''), 10) || 0;
+          if (numB !== numA) return numB - numA;
+          const cmp = String(b.bill_no || '').localeCompare(String(a.bill_no || ''), undefined, { numeric: true });
+          if (cmp !== 0) return cmp;
+          return Number(b.id || 0) - Number(a.id || 0);
+        });
         setBookings(sorted);
         setFilteredBookings(sorted);
         setStates(statesData);
